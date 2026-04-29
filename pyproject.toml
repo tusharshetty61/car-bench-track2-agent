@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentbeats-tutorial"
+version = "0.1.0"
+description = "Agentbeats Tutorial"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "a2a-sdk[http-server]>=0.3.5",
+    "httpx>=0.28.1",
+    "loguru>=0.7.0",
+    "pydantic>=2.11.9",
+    "python-dotenv>=1.1.1",
+    "uvicorn>=0.35.0",
+]
+
+[project.optional-dependencies]
+car-bench-agent = [
+    "google-adk>=1.14.1",
+    "google-genai>=1.36.0",
+    "litellm>=1.0.0",
+]
+car-bench-evaluator = [
+    "nest-asyncio>=1.6.0",
+    "car-bench",
+]
+
+[project.scripts]
+agentbeats-run = "agentbeats.run_scenario:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18.1",
+    "tomli-w>=1.0.0",
+]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+car-bench = { path = "scenarios/car-bench/car-bench" }
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentbeats"]

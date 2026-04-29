@@ -1,0 +1,42 @@
+# Local testing scenario configuration
+# This file is for local docker-compose testing with the generate_compose.py tool
+#
+# Usage:
+#   1. Build your Docker images locally or use published images
+#   2. python generate_compose.py --scenario scenarios/scenario-docker-local.toml
+#   3. cp .env.example .env  # Edit with your API keys
+#   4. mkdir -p output
+#   5. docker compose up --abort-on-container-exit
+
+[green_agent]
+# For local testing, use 'build' to build from local Dockerfile
+build = { context = ".", dockerfile = "src/green_car_bench_agent/Dockerfile.car-bench-evaluator" }
+# Environment variables for the green agent
+env = { GEMINI_API_KEY = "${GEMINI_API_KEY}", LOGURU_LEVEL = "${LOGURU_LEVEL}", CAR_BENCH_DATA_DIR = "/workspace/scenarios/car-bench/car-bench/car_bench/envs/car_voice_assistant/mock_data" }
+# Mount the data directory into the container
+volumes = ["./scenarios/car-bench/car-bench:/workspace/scenarios/car-bench/car-bench:ro"]
+
+[[participants]]
+# For local testing, use 'build' to build from local Dockerfile
+build = { context = ".", dockerfile = "src/purple_car_bench_agent/Dockerfile.car-bench-agent" }
+name = "agent"
+# Environment variables - include all API keys the agent might need
+# AGENT_LLM: Specifies which LLM model to use (works in both local and GitHub Actions)
+env = { ANTHROPIC_API_KEY = "${ANTHROPIC_API_KEY}", OPENAI_API_KEY = "${OPENAI_API_KEY}", GEMINI_API_KEY = "${GEMINI_API_KEY}", AGENT_LLM = "anthropic/claude-haiku-4-5-20251001", LOGURU_LEVEL = "${LOGURU_LEVEL}" }
+# Command arguments (optional, AGENT_LLM env var is preferred for production)
+command_args = ["--agent-llm", "anthropic/claude-haiku-4-5-20251001"]
+
+[config]
+# CAR-bench specific configuration
+# Controls which tasks to run and how many trials per task
+num_trials = 3
+task_split = "test"  # "train" or "test"
+# Specify number of tasks to run (first N tasks) or use task_id_filter for specific tasks
+tasks_base_num_tasks = 2 # First N tasks in type/split, -1 for all.
+tasks_hallucination_num_tasks = 0 # First N tasks in type/split, -1 for all.
+tasks_disambiguation_num_tasks = 0 # First N tasks in type/split, -1 for all.
+# Alternative: Run specific task IDs, priority over num_tasks. Have to be in the correct type/split (check task_split.json)
+# tasks_base_task_id_filter = ["base_0", "base_2"]
+# tasks_hallucination_task_id_filter = ["hallucination_0"]
+# tasks_disambiguation_task_id_filter = ["disambiguation_0"]
+max_steps = 50

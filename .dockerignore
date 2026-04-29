@@ -1,0 +1,11 @@
+.env
+.DS_Store
+.python-version
+.venv
+**/__pycache__
+**/*.pyc
+
+# Include scenarios but exclude nested git repos and build artifacts
+scenarios/car-bench/car-bench/.git
+scenarios/car-bench/car-bench/results
+scenarios/car-bench/car-bench/**/*.egg-info

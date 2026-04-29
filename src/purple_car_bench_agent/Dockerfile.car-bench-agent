@@ -1,0 +1,23 @@
+FROM ghcr.io/astral-sh/uv:python3.12-trixie
+
+RUN adduser agentbeats
+USER agentbeats
+RUN mkdir -p /home/agentbeats/.cache/uv
+WORKDIR /home/agentbeats/app
+
+COPY pyproject.toml uv.lock README.md ./
+COPY src src
+# Note: Run './scenarios/car-bench/setup.sh' locally before building to have car-bench repo included in the build context
+COPY --chown=agentbeats:agentbeats scenarios scenarios
+
+# Clean up any local build artifacts from scenarios
+RUN find scenarios -type d -name "*.egg-info" -exec rm -rf {} + || true
+RUN find scenarios -type d -name "__pycache__" -exec rm -rf {} + || true
+
+RUN \
+    --mount=type=cache,target=/home/agentbeats/.cache/uv,uid=1000 \
+    uv sync --no-editable --extra car-bench-agent
+
+ENTRYPOINT ["uv", "run", "src/purple_car_bench_agent/server.py"]
+CMD ["--host", "0.0.0.0"]
+EXPOSE 8080
