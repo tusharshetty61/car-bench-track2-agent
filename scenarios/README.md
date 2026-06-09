@@ -14,9 +14,8 @@ scenarios.
 | Agent Package | Scenario Directory |
 | --- | --- |
 | `src/track_1_agent_under_test/` | `scenarios/track_1_agent_under_test/` |
-| `src/track_2_agent_under_test_codex/` | `scenarios/track_2_agent_under_test_codex/` |
-| `src/track_2_agent_under_test_codex_planner/` | `scenarios/track_2_agent_under_test_codex_planner/` |
-| `src/track_2_agent_under_test_codex_python/` | `scenarios/track_2_agent_under_test_codex_python/` |
+| `src/track_2_agent_under_test_cerebras/` | `scenarios/track_2_agent_under_test_cerebras/` |
+| `src/track_2_agent_under_test_cerebras_planner/` | `scenarios/track_2_agent_under_test_cerebras_planner/` |
 
 Each directory contains the same six-file matrix:
 

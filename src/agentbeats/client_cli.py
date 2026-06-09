@@ -252,6 +252,10 @@ def _agent_metadata(data: dict[str, Any]) -> dict[str, Any]:
                 "CODEX_EXECUTOR_MODEL",
                 "CODEX_PLANNER_REASONING_EFFORT",
                 "CODEX_EXECUTOR_REASONING_EFFORT",
+                "TRACK2_PLANNER_MODEL",
+                "TRACK2_EXECUTOR_MODEL",
+                "TRACK2_PLANNER_REASONING_EFFORT",
+                "TRACK2_EXECUTOR_REASONING_EFFORT",
             }:
                 metadata[key] = value
         if "command_args" in agent:
@@ -293,7 +297,12 @@ def _model_label(metadata: dict[str, Any]) -> str | None:
     if planner and executor:
         return f"{planner}_to_{executor}"
 
-    for key in ("CODEX_EXECUTOR_MODEL", "CODEX_MODEL", "AGENT_LLM"):
+    planner = _normalize_label(metadata.get("TRACK2_PLANNER_MODEL"))
+    executor = _normalize_label(metadata.get("TRACK2_EXECUTOR_MODEL"))
+    if planner and executor:
+        return f"{planner}_to_{executor}"
+
+    for key in ("TRACK2_EXECUTOR_MODEL", "CODEX_EXECUTOR_MODEL", "CODEX_MODEL", "AGENT_LLM"):
         value = _normalize_label(metadata.get(key))
         if value:
             return value
@@ -322,6 +331,15 @@ def _reasoning_label(metadata: dict[str, Any]) -> str | None:
     if executor:
         return executor
 
+    planner = _normalize_label(metadata.get("TRACK2_PLANNER_REASONING_EFFORT"))
+    executor = _normalize_label(metadata.get("TRACK2_EXECUTOR_REASONING_EFFORT"))
+    if planner and executor and planner != executor:
+        return f"{planner}_to_{executor}"
+    if executor:
+        return executor
+    if planner:
+        return planner
+
     for key in (
         "CODEX_REASONING_EFFORT",
         "AGENT_REASONING_EFFORT",
@@ -331,10 +349,16 @@ def _reasoning_label(metadata: dict[str, Any]) -> str | None:
             return value
 
     args = _metadata_command_args(metadata)
+    planner_arg = _command_arg_value(args, "--planner-reasoning-effort")
+    executor_arg = _command_arg_value(args, "--executor-reasoning-effort")
+    if planner_arg and executor_arg and planner_arg != executor_arg:
+        return f"{planner_arg}_to_{executor_arg}"
+    if executor_arg:
+        return executor_arg
+    if planner_arg:
+        return planner_arg
     for names in (
-        ("--executor-reasoning-effort",),
         ("--reasoning-effort",),
-        ("--planner-reasoning-effort",),
     ):
         value = _command_arg_value(args, *names)
         if value:

@@ -1,8 +1,8 @@
 # CAR-bench Agent Under Test Development Guide
 
 This guide explains how to build any **agent under test** for CAR-bench
-evaluation. It applies to the baseline LiteLLM template, the Codex reference
-agents, and participant-owned agents. Every agent communicates with the
+evaluation. It applies to the baseline LiteLLM template, the Track 2 Cerebras
+templates, and participant-owned agents. Every agent communicates with the
 CAR-bench evaluator through the same **A2A (Agent-to-Agent) protocol**.
 
 If you are just getting started, use the [main README](../README.md) first for
@@ -10,22 +10,20 @@ competition overview, setup, validation modes, and submission shape. Then pick a
 starter package README:
 
 - [Track 1 minimal template](../src/track_1_agent_under_test/README.md)
-- [Track 2 direct Codex agent](../src/track_2_agent_under_test_codex/README.md)
-- [Track 2 planner/executor agent](../src/track_2_agent_under_test_codex_planner/README.md)
-- [Track 2 Python-call DSL agent](../src/track_2_agent_under_test_codex_python/README.md)
+- [Track 2 direct Cerebras agent](../src/track_2_agent_under_test_cerebras/README.md)
+- [Track 2 planner/executor agent](../src/track_2_agent_under_test_cerebras_planner/README.md)
 
 This guide is the detailed reference for what your agent receives and what it
 must send on each A2A turn.
 
 > **Reference implementations:** The same wire contract is demonstrated by:
 > - [`src/track_1_agent_under_test/`](../src/track_1_agent_under_test/) — Track 1 minimal LiteLLM-compatible template
-> - [`src/track_2_agent_under_test_codex/`](../src/track_2_agent_under_test_codex/) — Track 2 Codex next-action JSON adapter
-> - [`src/track_2_agent_under_test_codex_planner/`](../src/track_2_agent_under_test_codex_planner/) — Track 2 private planner plus Spark executor
-> - [`src/track_2_agent_under_test_codex_python/`](../src/track_2_agent_under_test_codex_python/) — Track 2 Python-call DSL adapter
+> - [`src/track_2_agent_under_test_cerebras/`](../src/track_2_agent_under_test_cerebras/) — Track 2 direct Cerebras next-action adapter
+> - [`src/track_2_agent_under_test_cerebras_planner/`](../src/track_2_agent_under_test_cerebras_planner/) — Track 2 Cerebras planner plus Cerebras executor
 >
 > For more sophisticated harnessing, see
 > [`agent-under-test-harnessing.md`](agent-under-test-harnessing.md) and
-> [`codex-harness-patterns.md`](codex-harness-patterns.md).
+> [`cerebras-harness-patterns.md`](cerebras-harness-patterns.md).
 
 ---
 
@@ -110,7 +108,7 @@ The first message in a conversation contains **two Parts**:
 
 See how the baseline agent parses this in
 [`src/track_1_agent_under_test/car_bench_agent.py`](../src/track_1_agent_under_test/car_bench_agent.py),
-inside the `execute()` method. The Codex agents reuse the same parsing contract
+inside the `execute()` method. The Track 2 Cerebras agents reuse the same parsing contract
 before converting the transcript into their own internal prompt format.
 
 ### Subsequent Messages
@@ -216,7 +214,7 @@ Return both a text Part and a data Part. The text serves as a natural language e
 
 This is the most common pattern in the baseline agent; see
 [`src/track_1_agent_under_test/car_bench_agent.py`](../src/track_1_agent_under_test/car_bench_agent.py)
-for the concrete response-building code. The Codex agents intentionally return
+for the concrete response-building code. The Track 2 Cerebras agents intentionally return
 either a text response or tool-call data for each step, then let the evaluator
 drive the next turn.
 
@@ -285,7 +283,7 @@ class AgentExecutor:
 - `new_message(parts=..., context_id=..., role=Role.ROLE_AGENT)` — Helper to build the response message
 
 See [`src/track_1_agent_under_test/car_bench_agent.py`](../src/track_1_agent_under_test/car_bench_agent.py)
-and [`src/track_2_agent_under_test_codex/car_bench_agent.py`](../src/track_2_agent_under_test_codex/car_bench_agent.py)
+and [`src/track_2_agent_under_test_cerebras/car_bench_agent.py`](../src/track_2_agent_under_test_cerebras/car_bench_agent.py)
 for complete implementations of this executor contract.
 
 ---
@@ -323,21 +321,26 @@ The metadata shape is:
 Field meanings:
 
 - `prompt_tokens`, `completion_tokens`, `thinking_tokens`: report provider
-  usage when available; use `0` when unavailable. For Codex app-server, the
-  reference clients read these from `thread/tokenUsage/updated`.
+  usage when available; use `0` when unavailable. The reference templates read
+  these from provider response usage objects when present.
 - `cost`: provider cost for the internal calls in this assistant step; use
   `0.0` for subscription-backed runtimes that do not expose reliable cost.
 - `model`: the model or harness description, such as
-  `gpt-5.3-codex-spark` or `gpt-5.5->gpt-5.3-codex-spark`.
+  `gpt-oss-120b` or `gpt-oss-120b->gpt-oss-120b`.
 - `num_llm_calls`: number of internal model calls made before returning this
   final response.
-- `avg_llm_call_time_ms`: average duration of those internal model calls.
+- `avg_llm_call_time_ms`: average duration of successful internal provider
+  calls. Do not include local queueing sleeps, failed rate-limit attempts, app
+  startup, parser work, or debug work. Successful planner/executor calls do
+  count as provider calls.
 - `num_passes`: number of internal inference passes if the harness has a
   multi-pass planner, executor, ensemble, or validator. Use `1` for a normal
   single-pass agent.
-- `quota_wait_time_ms`: time spent waiting for a provider or subscription quota
-  reset. The evaluator subtracts this from benchmark turn and wall-clock
-  summaries while preserving raw timing fields for audit.
+- `quota_wait_time_ms`: optional CAR-bench metadata extension reserved for
+  provider or subscription quota-wait accounting. Final time-budget and
+  quota-wait accounting details will be announced before the official
+  evaluation. Until then, attach only metadata you can measure reliably and keep
+  provider logs or rate-limit report files when the harness has to wait.
 
 The evaluator adds its own measured `turn_time_ms` after receiving the response.
 Agents should not send `turn_time_ms` themselves.
@@ -347,9 +350,8 @@ The reference agents conform to this contract:
 | Agent | Message Parts | Metadata |
 |-------|---------------|----------|
 | `src/track_1_agent_under_test/` | text Part, data Part with `{"tool_calls": ...}`, optional `reasoning_content` | Aggregated LiteLLM usage on final no-tool-call responses |
-| `src/track_2_agent_under_test_codex/` | text Part for `respond`, data Part with `{"tool_calls": ...}` for actions | Codex latency/call count plus app-server token usage when emitted; cost remains zero |
-| `src/track_2_agent_under_test_codex_planner/` | Same as Codex JSON agent | Planner plus executor call counts, combined model label, and aggregated app-server token usage |
-| `src/track_2_agent_under_test_codex_python/` | Same as Codex JSON agent after parsing Python-call DSL | Same as Codex JSON agent |
+| `src/track_2_agent_under_test_cerebras/` | text Part for `respond`, data Part with `{"tool_calls": ...}` for actions | Cerebras SDK usage, latency, call count, and rate-limit report evidence when applicable |
+| `src/track_2_agent_under_test_cerebras_planner/` | Same as direct Cerebras agent | Planner plus executor call counts, combined model label, and aggregated provider usage |
 
 For shared constants, see [`src/turn_metrics.py`](../src/turn_metrics.py).
 
@@ -376,9 +378,8 @@ The server also accepts CLI arguments and environment variables for LLM
 configuration. The exact flags depend on the reference agent. For examples, see:
 
 - [`src/track_1_agent_under_test/server.py`](../src/track_1_agent_under_test/server.py)
-- [`src/track_2_agent_under_test_codex/server.py`](../src/track_2_agent_under_test_codex/server.py)
-- [`src/track_2_agent_under_test_codex_planner/server.py`](../src/track_2_agent_under_test_codex_planner/server.py)
-- [`src/track_2_agent_under_test_codex_python/server.py`](../src/track_2_agent_under_test_codex_python/server.py)
+- [`src/track_2_agent_under_test_cerebras/server.py`](../src/track_2_agent_under_test_cerebras/server.py)
+- [`src/track_2_agent_under_test_cerebras_planner/server.py`](../src/track_2_agent_under_test_cerebras_planner/server.py)
 
 ---
 

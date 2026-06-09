@@ -3,6 +3,7 @@ import asyncio
 import os, sys, time, subprocess, shlex, signal
 from pathlib import Path
 import tomllib
+from typing import Any
 import httpx
 from dotenv import load_dotenv
 
@@ -16,9 +17,15 @@ sys.path.pop(0)
 # Load .env for local development only (doesn't override existing env vars from GitHub Actions)
 load_dotenv(override=False)
 logger = configure_logger(role="orchestrator")
+DEFAULT_AGENT_STARTUP_TIMEOUT_SECONDS = 90
 
 
-async def wait_for_agents(cfg: dict, timeout: int = 30, evaluate_only: bool = False) -> bool:
+async def wait_for_agents(
+    cfg: dict,
+    timeout: int = DEFAULT_AGENT_STARTUP_TIMEOUT_SECONDS,
+    evaluate_only: bool = False,
+    processes: list[dict[str, Any]] | None = None,
+) -> bool:
     """Wait for all agents to be healthy and responding."""
     endpoints = []
 
@@ -35,6 +42,7 @@ async def wait_for_agents(cfg: dict, timeout: int = 30, evaluate_only: bool = Fa
 
     logger.info(f"Waiting for {len(endpoints)} agent(s) to be ready", num_agents=len(endpoints))
     start_time = time.time()
+    last_errors: dict[str, str] = {}
 
     async def check_endpoint(endpoint: str) -> bool:
         """Check if an endpoint is responding by fetching the agent card."""
@@ -42,13 +50,40 @@ async def wait_for_agents(cfg: dict, timeout: int = 30, evaluate_only: bool = Fa
             async with httpx.AsyncClient(timeout=5) as client:
                 resolver = A2ACardResolver(httpx_client=client, base_url=endpoint)
                 await resolver.get_agent_card()
+                last_errors.pop(endpoint, None)
                 return True
         except Exception as e:
-            # Log the specific error for debugging
-            logger.debug(f"Agent check failed", endpoint=endpoint, error=f"{type(e).__name__}: {str(e)[:100]}")
+            error = f"{type(e).__name__}: {e}"
+            last_errors[endpoint] = error
+            logger.debug("Agent readiness check failed", endpoint=endpoint, error=error)
             return False
 
+    def exited_processes() -> list[dict[str, Any]]:
+        exited = []
+        for process_info in processes or []:
+            proc = process_info["process"]
+            exit_code = proc.poll()
+            if exit_code is not None:
+                exited.append(
+                    {
+                        "role": process_info["role"],
+                        "endpoint": process_info["endpoint"],
+                        "exit_code": exit_code,
+                        "cmd": process_info["cmd"],
+                    }
+                )
+        return exited
+
     while time.time() - start_time < timeout:
+        exited = exited_processes()
+        if exited:
+            logger.error(
+                "Agent process exited before readiness",
+                exited_processes=exited,
+                last_errors=last_errors,
+            )
+            return False
+
         ready_status = {}
         for endpoint in endpoints:
             is_ready = await check_endpoint(endpoint)
@@ -63,11 +98,21 @@ async def wait_for_agents(cfg: dict, timeout: int = 30, evaluate_only: bool = Fa
         # Log status for agents that aren't ready yet
         for endpoint, is_ready in ready_status.items():
             if not is_ready:
-                logger.debug("Agent not ready yet", endpoint=endpoint)
+                logger.debug(
+                    "Agent not ready yet",
+                    endpoint=endpoint,
+                    last_error=last_errors.get(endpoint),
+                )
         
         await asyncio.sleep(1)
 
-    logger.error("Timeout waiting for agents", ready=ready_count, total=len(endpoints), timeout=timeout)
+    logger.error(
+        "Timeout waiting for agents",
+        ready=ready_count,
+        total=len(endpoints),
+        timeout=timeout,
+        last_errors=last_errors,
+    )
     return False
 
 
@@ -113,8 +158,15 @@ def main():
                         help="Start agent servers only without running evaluation")
     parser.add_argument("--evaluate-only", action="store_true",
                         help="Run evaluation only without starting agent servers")
-    parser.add_argument("--timeout", type=int, default=30,
-                        help="Timeout in seconds to wait for agents to be ready (default: 30)")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_AGENT_STARTUP_TIMEOUT_SECONDS,
+        help=(
+            "Timeout in seconds to wait for agents to be ready "
+            f"(default: {DEFAULT_AGENT_STARTUP_TIMEOUT_SECONDS})"
+        ),
+    )
     parser.add_argument("--output", type=str, default="output",
                         help="Output JSON file or directory for timestamped results (default: output)")
     args = parser.parse_args()
@@ -132,6 +184,7 @@ def main():
     base_env["PATH"] = parent_bin + os.pathsep + base_env.get("PATH", "")
 
     procs = []
+    process_infos = []
     try:
         # Start the agent under test (skip if --evaluate-only).
         if not args.evaluate_only:
@@ -143,13 +196,22 @@ def main():
                     host=aut['host'],
                     port=aut['port']
                 )
-                procs.append(subprocess.Popen(
+                proc = subprocess.Popen(
                     cmd_args,
                     env=base_env,
                     stdout=sink, stderr=sink,
                     text=True,
                     start_new_session=True,
-                ))
+                )
+                procs.append(proc)
+                process_infos.append(
+                    {
+                        "role": "agent_under_test",
+                        "endpoint": f"http://{aut['host']}:{aut['port']}",
+                        "cmd": cmd_args,
+                        "process": proc,
+                    }
+                )
 
         # Start the evaluator (skip if --evaluate-only).
         if not args.evaluate_only:
@@ -160,16 +222,35 @@ def main():
                     host=cfg['evaluator']['host'],
                     port=cfg['evaluator']['port']
                 )
-                procs.append(subprocess.Popen(
+                proc = subprocess.Popen(
                     evaluator_cmd_args,
                     env=base_env,
                     stdout=sink, stderr=sink,
                     text=True,
                     start_new_session=True,
-                ))
+                )
+                procs.append(proc)
+                process_infos.append(
+                    {
+                        "role": "evaluator",
+                        "endpoint": (
+                            f"http://{cfg['evaluator']['host']}:"
+                            f"{cfg['evaluator']['port']}"
+                        ),
+                        "cmd": evaluator_cmd_args,
+                        "process": proc,
+                    }
+                )
 
         # Wait for all agents to be ready
-        if not asyncio.run(wait_for_agents(cfg, timeout=args.timeout, evaluate_only=args.evaluate_only)):
+        if not asyncio.run(
+            wait_for_agents(
+                cfg,
+                timeout=args.timeout,
+                evaluate_only=args.evaluate_only,
+                processes=process_infos,
+            )
+        ):
             logger.error("Not all agents became ready, exiting")
             return
 

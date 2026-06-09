@@ -34,9 +34,8 @@ EXPECTED_SCENARIO_FILES = {
 
 SCENARIO_DIRS = [
     Path("scenarios/track_1_agent_under_test"),
-    Path("scenarios/track_2_agent_under_test_codex"),
-    Path("scenarios/track_2_agent_under_test_codex_planner"),
-    Path("scenarios/track_2_agent_under_test_codex_python"),
+    Path("scenarios/track_2_agent_under_test_cerebras"),
+    Path("scenarios/track_2_agent_under_test_cerebras_planner"),
 ]
 
 
@@ -124,12 +123,13 @@ class ScenarioContractTest(unittest.TestCase):
     def test_timestamped_output_path_uses_agent_model_and_effort(self) -> None:
         data = {
                 "run": {
-                    "agent_name": "codex-planner",
-                    "scenario_name": "codex-planner/local_docker_smoke",
+                    "agent_name": "cerebras-planner",
+                "scenario_name": "cerebras-planner/local_docker_smoke",
                 "agent_metadata": {
-                    "CODEX_PLANNER_MODEL": "gpt-5.5",
-                    "CODEX_EXECUTOR_MODEL": "gpt-5.3-codex-spark",
-                    "CODEX_EXECUTOR_REASONING_EFFORT": "medium",
+                    "TRACK2_PLANNER_MODEL": "gpt-oss-120b",
+                    "TRACK2_PLANNER_REASONING_EFFORT": "high",
+                    "TRACK2_EXECUTOR_MODEL": "gpt-oss-120b",
+                    "TRACK2_EXECUTOR_REASONING_EFFORT": "medium",
                 },
             },
             "evaluator": {"endpoint": "http://127.0.0.1:8081"},
@@ -139,9 +139,9 @@ class ScenarioContractTest(unittest.TestCase):
         path = resolve_output_path("output", Path("scenario.toml"), data)
 
         self.assertIsNotNone(path)
-        self.assertEqual(path.parts[0:2], ("output", "codex-planner"))
-        self.assertIn("gpt-5.5_to_gpt-5.3-codex-spark", path.name)
-        self.assertIn("medium", path.name)
+        self.assertEqual(path.parts[0:2], ("output", "cerebras-planner"))
+        self.assertIn("gpt-oss-120b_to_gpt-oss-120b", path.name)
+        self.assertIn("high_to_medium", path.name)
         self.assertIn("split-unspecified", path.name)
 
     def test_output_path_omits_unreliable_user_model(self) -> None:
@@ -219,11 +219,11 @@ class ScenarioContractTest(unittest.TestCase):
         payload = build_output_payload(
             req=req,
             evaluator_url=evaluator_url,
-            scenario_path=Path("scenarios/track_2_agent_under_test_codex/local_smoke.toml"),
+            scenario_path=Path("scenarios/track_2_agent_under_test_cerebras/local_smoke.toml"),
             scenario_data={
                 "agent_under_test": {
                     "endpoint": "http://127.0.0.1:8080",
-                    "cmd": "python server.py --model gpt-5.3-codex-spark",
+                    "cmd": "python server.py --executor-model gpt-oss-120b",
                 },
                 "config": {"num_trials": 1},
             },

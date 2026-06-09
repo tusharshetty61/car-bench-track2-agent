@@ -31,7 +31,7 @@ The official competition has two tracks:
 | Track | Goal | Starter |
 | --- | --- | --- |
 | **Track 1: Open Track** | Use any model, provider, framework, or architecture to maximize reliability. The Best Innovation Award focuses on agent harnessing and reliability design. | [`src/track_1_agent_under_test/`](src/track_1_agent_under_test/) |
-| **Track 2: Cerebras Fast-Reasoning with Codex Pro** | Use Codex Pro-backed agents around Cerebras-hosted `gpt-5.3-codex-spark` to turn fast inference into better reliability under the official time budget. Participation is limited to 15 teams. | [`src/track_2_agent_under_test_codex/`](src/track_2_agent_under_test_codex/) and variants |
+| **Track 2: Cerebras Fast-Reasoning** | Use direct Cerebras-hosted `gpt-oss` inference and compute-aware harnessing to turn fast inference into better reliability under the official time budget. Participation is limited to 15 teams. | [`src/track_2_agent_under_test_cerebras/`](src/track_2_agent_under_test_cerebras/) and planner variant |
 
 Final ranking is performed by the organizers on a hidden test set. The local
 `local_test_set.toml`, `local_docker_test_set.toml`, and `ghcr_test_set.toml`
@@ -133,44 +133,58 @@ The Track 1 starter is documented in
 
 ### Track 2 Setup
 
-Track 2 uses Codex Pro-backed inference. The reference agents default to
-`gpt-5.3-codex-spark` as the fast executor and pin `@openai/codex@0.130.0` in
-Docker builds for reproducibility.
-
-The Track 2 reference agents share the same Python dependencies; their main
-runtime dependency is the external Codex CLI:
+Track 2 uses direct Cerebras `gpt-oss` inference through the Cerebras Python SDK.
+Participants should use Cerebras-hosted `gpt-oss` models. The direct executor
+defaults to `gpt-oss-120b` with `TRACK2_EXECUTOR_REASONING_EFFORT=medium`. The
+planner/executor template also defaults the private planner to `gpt-oss-120b`,
+with `TRACK2_PLANNER_REASONING_EFFORT=high` and executor effort `medium`.
 
 ```bash
-uv sync --extra car-bench-evaluator
+uv sync --extra track-2-agent --extra car-bench-evaluator
 ```
 
-For local Codex runs, install and authenticate the Codex CLI. Installation
-packages, platform requirements, and installation methods may change, so follow
-the official [Codex CLI installation
-instructions](https://developers.openai.com/codex/cli). For Docker runs, use a
-dedicated Codex home instead of mounting your everyday Codex app state:
+Then add the evaluator and Cerebras keys to `.env`:
 
 ```bash
-mkdir -p "$HOME/.codex-car-bench"
-CODEX_HOME="$HOME/.codex-car-bench" codex login
-CODEX_HOME="$HOME/.codex-car-bench" codex login status
-```
-
-Then set the absolute path in `.env`:
-
-```bash
-CODEX_HOME_HOST=/Users/yourname/.codex-car-bench
 GEMINI_API_KEY=...
-LOGURU_LEVEL=DEBUG
+CEREBRAS_API_KEY=...
+TRACK2_EXECUTOR_MODEL=gpt-oss-120b
+TRACK2_EXECUTOR_REASONING_EFFORT=medium
 ```
+
+For the planner/executor template, the default planner is also Cerebras
+`gpt-oss-120b`:
+
+```bash
+TRACK2_PLANNER_MODEL=gpt-oss-120b
+TRACK2_PLANNER_REASONING_EFFORT=high
+TRACK2_PLANNER_MAX_COMPLETION_TOKENS=4096
+```
+
+Leave `TRACK2_PLANNER_TEMPERATURE` and `TRACK2_TEMPERATURE` unset unless the
+provider should receive an explicit temperature value.
+
+Public Cerebras development-tier limits can be strict. Use smoke scenarios
+first and keep `TRACK2_MAX_COMPLETION_TOKENS` tight. The reference templates
+retry reactively only after a Cerebras 429, using
+`x-ratelimit-reset-tokens-minute` when Cerebras provides it and falling back to
+`retry-after` otherwise. Provider queue pressure uses jittered local backoff.
+Cerebras 429s write JSON reports to
+`/tmp/car-bench-rate-limit-reports` by default. Expect organizers to provide
+a few elevated-rate/priority test windows for speed-sensitive validation.
+Final time-budget and quota-wait accounting details will be announced before
+the official evaluation.
+Participants may self-host the open-source models used by Cerebras during
+ordinary development. Codex Pro plans are still provided to selected Track 2
+teams for faster harness engineering and development, with allocation by
+June 15; Codex Pro is not the submitted-agent runtime for these templates.
 
 Track 2 details live in the agent READMEs:
 
 | Reference | README |
 | --- | --- |
-| Direct Codex JSON agent | [`src/track_2_agent_under_test_codex/README.md`](src/track_2_agent_under_test_codex/README.md) |
-| Planner/executor agent | [`src/track_2_agent_under_test_codex_planner/README.md`](src/track_2_agent_under_test_codex_planner/README.md) |
-| Python-call DSL agent | [`src/track_2_agent_under_test_codex_python/README.md`](src/track_2_agent_under_test_codex_python/README.md) |
+| Direct Cerebras agent | [`src/track_2_agent_under_test_cerebras/README.md`](src/track_2_agent_under_test_cerebras/README.md) |
+| Planner/executor agent | [`src/track_2_agent_under_test_cerebras_planner/README.md`](src/track_2_agent_under_test_cerebras_planner/README.md) |
 
 ---
 
@@ -205,9 +219,8 @@ For exact A2A shapes, protobuf helper usage, metadata, and code references, read
 | Agent | Package | Scenario Directory | Best For |
 | --- | --- | --- | --- |
 | Track 1 template | [`src/track_1_agent_under_test/`](src/track_1_agent_under_test/) | [`scenarios/track_1_agent_under_test/`](scenarios/track_1_agent_under_test/) | Building your own provider/model integration |
-| Track 2 Codex JSON | [`src/track_2_agent_under_test_codex/`](src/track_2_agent_under_test_codex/) | [`scenarios/track_2_agent_under_test_codex/`](scenarios/track_2_agent_under_test_codex/) | Simple Spark next-action baseline |
-| Track 2 planner/executor | [`src/track_2_agent_under_test_codex_planner/`](src/track_2_agent_under_test_codex_planner/) | [`scenarios/track_2_agent_under_test_codex_planner/`](scenarios/track_2_agent_under_test_codex_planner/) | Larger planner plus Spark executor |
-| Track 2 Python-call DSL | [`src/track_2_agent_under_test_codex_python/`](src/track_2_agent_under_test_codex_python/) | [`scenarios/track_2_agent_under_test_codex_python/`](scenarios/track_2_agent_under_test_codex_python/) | Programmatic-tool-calling-style action blocks |
+| Track 2 Cerebras | [`src/track_2_agent_under_test_cerebras/`](src/track_2_agent_under_test_cerebras/) | [`scenarios/track_2_agent_under_test_cerebras/`](scenarios/track_2_agent_under_test_cerebras/) | Direct Cerebras next-action baseline |
+| Track 2 planner/executor | [`src/track_2_agent_under_test_cerebras_planner/`](src/track_2_agent_under_test_cerebras_planner/) | [`scenarios/track_2_agent_under_test_cerebras_planner/`](scenarios/track_2_agent_under_test_cerebras_planner/) | Cerebras `gpt-oss` planner with high reasoning plus Cerebras `gpt-oss` executor with medium reasoning |
 
 ---
 
@@ -239,9 +252,8 @@ Fastest way to iterate on code. Agents run as local Python processes.
 | Track | Command |
 | --- | --- |
 | Track 1 | `uv run car-bench-run scenarios/track_1_agent_under_test/local_smoke.toml --show-logs` |
-| Track 2 Codex JSON | `uv run car-bench-run scenarios/track_2_agent_under_test_codex/local_smoke.toml --show-logs` |
-| Track 2 planner/executor | `uv run car-bench-run scenarios/track_2_agent_under_test_codex_planner/local_smoke.toml --show-logs` |
-| Track 2 Python-call DSL | `uv run car-bench-run scenarios/track_2_agent_under_test_codex_python/local_smoke.toml --show-logs` |
+| Track 2 Cerebras | `uv run car-bench-run scenarios/track_2_agent_under_test_cerebras/local_smoke.toml --show-logs` |
+| Track 2 planner/executor | `uv run car-bench-run scenarios/track_2_agent_under_test_cerebras_planner/local_smoke.toml --show-logs` |
 
 Use the corresponding `local_test_set.toml` only after the smoke scenario works.
 Local test-set runs are development validation, not official final evaluation.
@@ -254,9 +266,9 @@ environment work without local Python process assumptions.
 | Track | Generate Compose | Run |
 | --- | --- | --- |
 | Track 1 | `uv run python generate_compose.py --scenario scenarios/track_1_agent_under_test/local_docker_smoke.toml` | `docker compose --env-file .env -f scenarios/track_1_agent_under_test/docker-compose.yml up --abort-on-container-exit` |
-| Track 2 Codex JSON | `uv run python generate_compose.py --scenario scenarios/track_2_agent_under_test_codex/local_docker_smoke.toml` | `docker compose --env-file .env -f scenarios/track_2_agent_under_test_codex/docker-compose.yml up --abort-on-container-exit` |
+| Track 2 Cerebras | `uv run python generate_compose.py --scenario scenarios/track_2_agent_under_test_cerebras/local_docker_smoke.toml` | `docker compose --env-file .env -f scenarios/track_2_agent_under_test_cerebras/docker-compose.yml up --abort-on-container-exit` |
 
-For the Track 2 planner/executor or Python-call agents, use the same commands
+For the Track 2 planner/executor agent, use the same commands
 with their scenario directories. `generate_compose.py` writes
 `docker-compose.yml` and `a2a-scenario.toml` next to the selected Docker
 scenario; those generated files are ignored by git.
@@ -348,24 +360,21 @@ src/
   agentbeats/                         inherited internal A2A runner helpers
   evaluator/                          CAR-bench evaluator A2A server
   track_1_agent_under_test/           Track 1 minimal template
-  track_2_agent_under_test_codex/     Track 2 direct Codex JSON agent
-  track_2_agent_under_test_codex_planner/
+  track_2_agent_under_test_cerebras/  Track 2 direct Cerebras agent
+  track_2_agent_under_test_cerebras_planner/
                                       Track 2 planner/executor agent
-  track_2_agent_under_test_codex_python/
-                                      Track 2 Python-call DSL agent
   tool_call_types.py                  shared tool-call data models
   turn_metrics.py                     shared metadata keys
 
 scenarios/
   track_1_agent_under_test/
-  track_2_agent_under_test_codex/
-  track_2_agent_under_test_codex_planner/
-  track_2_agent_under_test_codex_python/
+  track_2_agent_under_test_cerebras/
+  track_2_agent_under_test_cerebras_planner/
 
 docs/
   development-guide.md                detailed A2A turn contract
   agent-under-test-harnessing.md      allowed harness boundaries
-  codex-harness-patterns.md           Track 2 model/harness patterns
+  cerebras-harness-patterns.md        Track 2 model/harness patterns
 ```
 
 ---
@@ -376,14 +385,13 @@ Use this reading path when building your own agent:
 
 1. **Pick a starter**
    - Track 1: [`src/track_1_agent_under_test/README.md`](src/track_1_agent_under_test/README.md)
-   - Track 2 direct Codex: [`src/track_2_agent_under_test_codex/README.md`](src/track_2_agent_under_test_codex/README.md)
-   - Track 2 planner/executor: [`src/track_2_agent_under_test_codex_planner/README.md`](src/track_2_agent_under_test_codex_planner/README.md)
-   - Track 2 Python-call DSL: [`src/track_2_agent_under_test_codex_python/README.md`](src/track_2_agent_under_test_codex_python/README.md)
+   - Track 2 direct Cerebras: [`src/track_2_agent_under_test_cerebras/README.md`](src/track_2_agent_under_test_cerebras/README.md)
+   - Track 2 planner/executor: [`src/track_2_agent_under_test_cerebras_planner/README.md`](src/track_2_agent_under_test_cerebras_planner/README.md)
 2. **Understand the turn contract**
    - [`docs/development-guide.md`](docs/development-guide.md)
 3. **Design a more sophisticated harness**
    - [`docs/agent-under-test-harnessing.md`](docs/agent-under-test-harnessing.md)
-   - [`docs/codex-harness-patterns.md`](docs/codex-harness-patterns.md)
+   - [`docs/cerebras-harness-patterns.md`](docs/cerebras-harness-patterns.md)
 4. **Protocol background**
    - [`docs/a2a-introduction.md`](docs/a2a-introduction.md)
 

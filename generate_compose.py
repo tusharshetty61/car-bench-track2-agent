@@ -305,6 +305,10 @@ def collect_agent_metadata(agent: dict[str, Any]) -> dict[str, Any]:
             "CODEX_EXECUTOR_MODEL",
             "CODEX_PLANNER_REASONING_EFFORT",
             "CODEX_EXECUTOR_REASONING_EFFORT",
+            "TRACK2_PLANNER_MODEL",
+            "TRACK2_EXECUTOR_MODEL",
+            "TRACK2_PLANNER_REASONING_EFFORT",
+            "TRACK2_EXECUTOR_REASONING_EFFORT",
         }:
             metadata[key] = value
 
