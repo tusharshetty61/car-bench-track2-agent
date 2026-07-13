@@ -12,7 +12,7 @@ GEMINI_API_KEY = "${GEMINI_API_KEY:?Set GEMINI_API_KEY}"
 LOGURU_LEVEL = "${LOGURU_LEVEL:-INFO}"
 
 [agent_under_test]
-image = "ghcr.io/tusharshetty61/car-bench-agent-under-test@sha256:<REPLACE_WITH_DIGEST>"
+image = "ghcr.io/tusharshetty61/car-bench-agent-under-test@sha256:efaa35dc48d58b839323232876cd56e420a6f9fd2c806cfbf332336216d070dc"
 
 [agent_under_test.env]
 # --- Required: Cerebras credentials ---
