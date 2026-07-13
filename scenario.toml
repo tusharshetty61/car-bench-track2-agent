@@ -1,8 +1,8 @@
 # CAR-bench Track 2 (Cerebras Fast-Reasoning) submission scenario.
 # Evaluator is the official organizer-published image and must not be modified.
-# Replace <REPLACE_WITH_DIGEST> with the sha256 digest printed by the
-# "Publish Agent Under Test To GHCR" Actions run before submitting.
-# No secret VALUES appear here — only env-var NAMES.
+# The agent image is pinned by digest (see [agent_under_test].image below).
+# No secret VALUES appear here — only env-var NAMES. The agent authenticates to
+# Cerebras with CEREBRAS_API_KEY; the evaluator uses GEMINI_API_KEY.
 
 [evaluator]
 image = "ghcr.io/car-bench/car-bench-evaluator:latest"
