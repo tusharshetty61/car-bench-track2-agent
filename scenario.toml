@@ -1,0 +1,53 @@
+# CAR-bench Track 2 (Cerebras Fast-Reasoning) submission scenario.
+# Evaluator is the official organizer-published image and must not be modified.
+# Replace <REPLACE_WITH_DIGEST> with the sha256 digest printed by the
+# "Publish Agent Under Test To GHCR" Actions run before submitting.
+# No secret VALUES appear here — only env-var NAMES.
+
+[evaluator]
+image = "ghcr.io/car-bench/car-bench-evaluator:latest"
+
+[evaluator.env]
+GEMINI_API_KEY = "${GEMINI_API_KEY:?Set GEMINI_API_KEY}"
+LOGURU_LEVEL = "${LOGURU_LEVEL:-INFO}"
+
+[agent_under_test]
+image = "ghcr.io/tusharshetty61/car-bench-agent-under-test@sha256:<REPLACE_WITH_DIGEST>"
+
+[agent_under_test.env]
+# --- Required: Cerebras credentials ---
+CEREBRAS_API_KEY = "${CEREBRAS_API_KEY:?Set CEREBRAS_API_KEY}"
+
+# --- Provider route / API base (optional; defaults to the Cerebras public API) ---
+CEREBRAS_API_BASE = "${CEREBRAS_API_BASE:-https://api.cerebras.ai}"
+TRACK2_CEREBRAS_SERVICE_TIER = "${TRACK2_CEREBRAS_SERVICE_TIER:-}"
+
+# --- Model selection (Track 2 default: Cerebras-hosted gpt-oss-120b) ---
+TRACK2_PLANNER_MODEL = "${TRACK2_PLANNER_MODEL:-gpt-oss-120b}"
+TRACK2_EXECUTOR_MODEL = "${TRACK2_EXECUTOR_MODEL:-gpt-oss-120b}"
+
+# --- Reasoning-effort selectors ---
+TRACK2_PLANNER_REASONING_EFFORT = "${TRACK2_PLANNER_REASONING_EFFORT:-high}"
+TRACK2_EXECUTOR_REASONING_EFFORT = "${TRACK2_EXECUTOR_REASONING_EFFORT:-low}"
+TRACK2_GATE_REASONING_EFFORT = "${TRACK2_GATE_REASONING_EFFORT:-low}"
+TRACK2_AMBIGUITY_REASONING_EFFORT = "${TRACK2_AMBIGUITY_REASONING_EFFORT:-medium}"
+
+# --- Decoding (shipped default is greedy: temperature 0) ---
+TRACK2_TEMPERATURE = "${TRACK2_TEMPERATURE:-0}"
+
+# --- Harness / gate configuration (shipped config: grounding + ambiguity on, policy off) ---
+TRACK2_ENABLE_GROUNDING_GATE = "${TRACK2_ENABLE_GROUNDING_GATE:-true}"
+TRACK2_ENABLE_AMBIGUITY_GATE = "${TRACK2_ENABLE_AMBIGUITY_GATE:-true}"
+TRACK2_ENABLE_POLICY_GATE = "${TRACK2_ENABLE_POLICY_GATE:-false}"
+TRACK2_GATE_VOTES = "${TRACK2_GATE_VOTES:-3}"
+TRACK2_AMBIGUITY_GATE_VOTES = "${TRACK2_AMBIGUITY_GATE_VOTES:-3}"
+
+LOGURU_LEVEL = "${LOGURU_LEVEL:-INFO}"
+
+[config]
+num_trials = 3
+task_split = "hidden"
+tasks_base_num_tasks = -1
+tasks_hallucination_num_tasks = -1
+tasks_disambiguation_num_tasks = -1
+max_steps = 50

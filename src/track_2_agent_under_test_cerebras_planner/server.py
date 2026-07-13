@@ -14,22 +14,24 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 
 if __package__:
+    from .gated_agent import GatedPlannerExecutorCARBenchAgentExecutor
+    from .gates import AmbiguityGateSettings, GateSettings, PolicyGateSettings
     from .planner_agent import (
         DEFAULT_EXECUTOR_MAX_COMPLETION_TOKENS,
         DEFAULT_EXECUTOR_REASONING_EFFORT,
         DEFAULT_PLANNER_MODEL,
         DEFAULT_PLANNER_MAX_COMPLETION_TOKENS,
         DEFAULT_PLANNER_REASONING_EFFORT,
-        PlannerExecutorCARBenchAgentExecutor,
     )
 else:
+    from gated_agent import GatedPlannerExecutorCARBenchAgentExecutor
+    from gates import AmbiguityGateSettings, GateSettings, PolicyGateSettings
     from planner_agent import (
         DEFAULT_EXECUTOR_MAX_COMPLETION_TOKENS,
         DEFAULT_EXECUTOR_REASONING_EFFORT,
         DEFAULT_PLANNER_MODEL,
         DEFAULT_PLANNER_MAX_COMPLETION_TOKENS,
         DEFAULT_PLANNER_REASONING_EFFORT,
-        PlannerExecutorCARBenchAgentExecutor,
     )
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -39,6 +41,12 @@ from track_2_agent_under_test_cerebras.cerebras_client import (
     DEFAULT_EXECUTOR_MODEL,
 )
 sys.path.pop(0)
+
+# Shipped default: GREEDY (temp 0) for both planner and executor. Ablation
+# (disamb .200->.333, Base->1.000) proved per-trial consistency was the bottleneck
+# and that the Cerebras default (~1.0, applied when temperature is omitted) was the
+# cause. Override per-run via --temperature / TRACK2_TEMPERATURE etc.
+DEFAULT_TRACK2_TEMPERATURE = 0.0
 
 logger = configure_logger(role="agent_under_test", context="server")
 
@@ -62,6 +70,13 @@ def _env_int(name: str, default: int) -> int:
     if value is None:
         return default
     return int(value)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = _env_or_default(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def prepare_agent_card(url: str) -> AgentCard:
@@ -104,6 +119,12 @@ def main() -> None:
     parser.add_argument("--planner-model", type=str, default=None)
     parser.add_argument("--executor-model", type=str, default=None)
     parser.add_argument("--service-tier", type=str, default=None)
+    parser.add_argument(
+        "--api-base",
+        type=str,
+        default=None,
+        help="Cerebras-compatible API base URL (env: TRACK2_CEREBRAS_API_BASE / CEREBRAS_API_BASE).",
+    )
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--planner-temperature", type=float, default=None)
     parser.add_argument("--executor-temperature", type=float, default=None)
@@ -113,6 +134,54 @@ def main() -> None:
     parser.add_argument("--planner-max-completion-tokens", type=int, default=None)
     parser.add_argument("--executor-max-completion-tokens", type=int, default=None)
     parser.add_argument("--malformed-retries", type=int, default=None)
+    parser.add_argument(
+        "--grounding-gate",
+        dest="grounding_gate",
+        action="store_true",
+        default=None,
+        help="Enable the parallel grounding gate (default on).",
+    )
+    parser.add_argument(
+        "--no-grounding-gate",
+        dest="grounding_gate",
+        action="store_false",
+        help="Disable the grounding gate (raw planner/executor baseline).",
+    )
+    parser.add_argument("--gate-votes", type=int, default=None)
+    parser.add_argument("--gate-reasoning-effort", type=str, default=None)
+    parser.add_argument("--gate-max-completion-tokens", type=int, default=None)
+    parser.add_argument(
+        "--ambiguity-gate",
+        dest="ambiguity_gate",
+        action="store_true",
+        default=None,
+        help="Enable the parallel disambiguation gate (default on).",
+    )
+    parser.add_argument(
+        "--no-ambiguity-gate",
+        dest="ambiguity_gate",
+        action="store_false",
+        help="Disable the disambiguation gate.",
+    )
+    parser.add_argument("--ambiguity-gate-votes", type=int, default=None)
+    parser.add_argument("--ambiguity-reasoning-effort", type=str, default=None)
+    parser.add_argument("--ambiguity-max-completion-tokens", type=int, default=None)
+    parser.add_argument(
+        "--policy-gate",
+        dest="policy_gate",
+        action="store_true",
+        default=None,
+        help="Enable the parallel policy-obligation gate + repair (default OFF; experimental).",
+    )
+    parser.add_argument(
+        "--no-policy-gate",
+        dest="policy_gate",
+        action="store_false",
+        help="Disable the policy-obligation gate.",
+    )
+    parser.add_argument("--policy-gate-votes", type=int, default=None)
+    parser.add_argument("--policy-reasoning-effort", type=str, default=None)
+    parser.add_argument("--policy-max-completion-tokens", type=int, default=None)
     args = parser.parse_args()
 
     if not _env_or_default("CEREBRAS_API_KEY"):
@@ -142,10 +211,18 @@ def main() -> None:
         if args.service_tier is not None
         else _env_or_default("TRACK2_CEREBRAS_SERVICE_TIER")
     )
+    api_base = (
+        args.api_base
+        if args.api_base is not None
+        else _env_or_default(
+            "TRACK2_CEREBRAS_API_BASE",
+            _env_or_default("CEREBRAS_API_BASE", DEFAULT_CEREBRAS_API_BASE),
+        )
+    )
     planner_temperature = (
         args.planner_temperature
         if args.planner_temperature is not None
-        else _env_float("TRACK2_PLANNER_TEMPERATURE")
+        else _env_float("TRACK2_PLANNER_TEMPERATURE", DEFAULT_TRACK2_TEMPERATURE)
     )
     executor_temperature = (
         args.executor_temperature
@@ -153,7 +230,7 @@ def main() -> None:
         else (
             args.temperature
             if args.temperature is not None
-            else _env_float("TRACK2_TEMPERATURE")
+            else _env_float("TRACK2_TEMPERATURE", DEFAULT_TRACK2_TEMPERATURE)
         )
     )
     executor_reasoning_effort = (
@@ -189,6 +266,83 @@ def main() -> None:
         if args.malformed_retries is not None
         else _env_int("TRACK2_LLM_MALFORMED_RETRIES", 1)
     )
+    enable_grounding_gate = (
+        args.grounding_gate
+        if args.grounding_gate is not None
+        else _env_bool("TRACK2_ENABLE_GROUNDING_GATE", True)
+    )
+    gate_settings = GateSettings(
+        model=executor_model or DEFAULT_EXECUTOR_MODEL,
+        reasoning_effort=(
+            args.gate_reasoning_effort
+            if args.gate_reasoning_effort is not None
+            else _env_or_default("TRACK2_GATE_REASONING_EFFORT", "low")
+        ),
+        votes=(
+            args.gate_votes
+            if args.gate_votes is not None
+            else _env_int("TRACK2_GATE_VOTES", 3)
+        ),
+        max_completion_tokens=(
+            args.gate_max_completion_tokens
+            if args.gate_max_completion_tokens is not None
+            else _env_int("TRACK2_GATE_MAX_COMPLETION_TOKENS", 2048)
+        ),
+        api_base=api_base,
+        service_tier=service_tier,
+    )
+    enable_ambiguity_gate = (
+        args.ambiguity_gate
+        if args.ambiguity_gate is not None
+        else _env_bool("TRACK2_ENABLE_AMBIGUITY_GATE", True)
+    )
+    ambiguity_gate_settings = AmbiguityGateSettings(
+        model=executor_model or DEFAULT_EXECUTOR_MODEL,
+        reasoning_effort=(
+            args.ambiguity_reasoning_effort
+            if args.ambiguity_reasoning_effort is not None
+            else _env_or_default("TRACK2_AMBIGUITY_REASONING_EFFORT", "medium")
+        ),
+        votes=(
+            args.ambiguity_gate_votes
+            if args.ambiguity_gate_votes is not None
+            else _env_int("TRACK2_AMBIGUITY_GATE_VOTES", 3)
+        ),
+        max_completion_tokens=(
+            args.ambiguity_max_completion_tokens
+            if args.ambiguity_max_completion_tokens is not None
+            else _env_int("TRACK2_AMBIGUITY_MAX_COMPLETION_TOKENS", 2048)
+        ),
+        api_base=api_base,
+        service_tier=service_tier,
+    )
+    # Policy-obligation gate: EXPERIMENTAL, default OFF (validate on TRAIN before shipping). Targets
+    # the cross-split route-informing miss (LLM-POL:021/022); see notes/STRATEGY.md 2026-07-10.
+    enable_policy_gate = (
+        args.policy_gate
+        if args.policy_gate is not None
+        else _env_bool("TRACK2_ENABLE_POLICY_GATE", False)
+    )
+    policy_gate_settings = PolicyGateSettings(
+        model=executor_model or DEFAULT_EXECUTOR_MODEL,
+        reasoning_effort=(
+            args.policy_reasoning_effort
+            if args.policy_reasoning_effort is not None
+            else _env_or_default("TRACK2_POLICY_REASONING_EFFORT", "low")
+        ),
+        votes=(
+            args.policy_gate_votes
+            if args.policy_gate_votes is not None
+            else _env_int("TRACK2_POLICY_GATE_VOTES", 3)
+        ),
+        max_completion_tokens=(
+            args.policy_max_completion_tokens
+            if args.policy_max_completion_tokens is not None
+            else _env_int("TRACK2_POLICY_MAX_COMPLETION_TOKENS", 2048)
+        ),
+        api_base=api_base,
+        service_tier=service_tier,
+    )
 
     logger.info(
         "Starting CAR-bench agent (Cerebras planner/executor)",
@@ -202,6 +356,15 @@ def main() -> None:
         planner_max_completion_tokens=planner_max_completion_tokens,
         executor_max_completion_tokens=executor_max_completion_tokens,
         malformed_retries=malformed_retries,
+        grounding_gate=enable_grounding_gate,
+        gate_votes=gate_settings.votes,
+        gate_reasoning_effort=gate_settings.reasoning_effort,
+        ambiguity_gate=enable_ambiguity_gate,
+        ambiguity_gate_votes=ambiguity_gate_settings.votes,
+        ambiguity_reasoning_effort=ambiguity_gate_settings.reasoning_effort,
+        policy_gate=enable_policy_gate,
+        policy_gate_votes=policy_gate_settings.votes,
+        policy_reasoning_effort=policy_gate_settings.reasoning_effort,
         host=args.host,
         port=args.port,
     )
@@ -209,12 +372,18 @@ def main() -> None:
     card = prepare_agent_card(args.card_url or f"http://{args.host}:{args.port}/")
 
     request_handler = DefaultRequestHandler(
-        agent_executor=PlannerExecutorCARBenchAgentExecutor(
+        agent_executor=GatedPlannerExecutorCARBenchAgentExecutor(
+            enable_grounding_gate=enable_grounding_gate,
+            enable_ambiguity_gate=enable_ambiguity_gate,
+            enable_policy_gate=enable_policy_gate,
+            gate_settings=gate_settings,
+            ambiguity_gate_settings=ambiguity_gate_settings,
+            policy_gate_settings=policy_gate_settings,
             planner_model=planner_model,
             executor_model=executor_model or DEFAULT_EXECUTOR_MODEL,
             planner_max_completion_tokens=planner_max_completion_tokens,
             executor_max_completion_tokens=executor_max_completion_tokens,
-            api_base=DEFAULT_CEREBRAS_API_BASE,
+            api_base=api_base,
             service_tier=service_tier,
             planner_temperature=planner_temperature,
             executor_temperature=executor_temperature,

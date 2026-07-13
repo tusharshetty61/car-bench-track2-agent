@@ -280,19 +280,31 @@ def main():
 
     finally:
         logger.info("Shutting down agents")
+
+        def _stop(p, force):
+            if p.poll() is not None:
+                return
+            try:
+                if os.name == "nt":
+                    # Windows has no process groups / SIGTERM; terminate the
+                    # process tree so orphaned servers don't keep ports bound.
+                    if force:
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(p.pid)],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        p.terminate()
+                else:
+                    os.killpg(p.pid, signal.SIGKILL if force else signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
+
         for p in procs:
-            if p.poll() is None:
-                try:
-                    os.killpg(p.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+            _stop(p, force=False)
         time.sleep(1)
         for p in procs:
-            if p.poll() is None:
-                try:
-                    os.killpg(p.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+            _stop(p, force=True)
 
 
 if __name__ == "__main__":

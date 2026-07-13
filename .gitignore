@@ -13,7 +13,7 @@ build/
 dist/
 external/
 output/
-outputs/plots/
+outputs/
 tmp/
 third_party/car-bench/
 
@@ -22,3 +22,8 @@ docker-compose.yml
 a2a-scenario.toml
 scenarios/**/docker-compose.yml
 scenarios/**/a2a-scenario.toml
+
+# Internal strategy + ablation harness (kept private, not in submission repo)
+notes/
+experiments/
+run_disamb3.sh
